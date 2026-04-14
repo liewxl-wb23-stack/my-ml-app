@@ -6,16 +6,16 @@ import joblib
 import pickle
 
 # ============================================
-# PAGE CONFIGURATION (MUST BE FIRST STREAMLIT COMMAND)
+# PAGE CONFIGURATION (MUST BE FIRST)
 # ============================================
 st.set_page_config(
-    page_title="Heart Disease Predictor",
+    page_title="Heart Disease Risk Assessment",
     page_icon="❤️",
     layout="wide"
 )
 
 # ============================================
-# TITLE AND DESCRIPTION
+# TITLE
 # ============================================
 st.title("❤️ Heart Disease Risk Assessment")
 st.markdown("""
@@ -24,40 +24,51 @@ Enter the patient information below to get a prediction.
 """)
 
 # ============================================
-# LOAD MODELS (CACHED FOR PERFORMANCE)
+# LOAD ALL MODELS AND PREPROCESSING TOOLS
 # ============================================
 @st.cache_resource
-def load_models():
+def load_all_artifacts():
     """Load all saved models and preprocessing tools"""
     try:
+        # Load the trained model
         model = joblib.load('best_model_xgboost.pkl')
+        
+        # Load preprocessing artifacts
         scaler = joblib.load('scaler.pkl')
         feature_names = joblib.load('feature_names.pkl')
         numerical_cols = joblib.load('numerical_columns.pkl')
         categorical_cols = joblib.load('categorical_columns.pkl')
         
+        # Load the preprocessing function
         with open('preprocess_patient.pkl', 'rb') as f:
             preprocess_fn = pickle.load(f)
         
         return model, scaler, feature_names, numerical_cols, categorical_cols, preprocess_fn
     except FileNotFoundError as e:
-        st.error(f"❌ Model file not found: {e}")
-        st.info("Please make sure all model files (.pkl) are uploaded to GitHub with your app.py")
+        st.error(f"❌ Missing file: {e}")
+        st.info("""
+        Please make sure these files are uploaded to GitHub:
+        - best_model_xgboost.pkl
+        - scaler.pkl
+        - feature_names.pkl
+        - numerical_columns.pkl
+        - categorical_columns.pkl
+        - preprocess_patient.pkl
+        """)
         return None, None, None, None, None, None
 
-# Load models
-model, scaler, feature_names, numerical_cols, categorical_cols, preprocess_fn = load_models()
+# Load everything
+model, scaler, feature_names, numerical_cols, categorical_cols, preprocess_fn = load_all_artifacts()
 
 # ============================================
 # INPUT FORM
 # ============================================
 st.subheader("📋 Patient Information")
 
-# Create two columns for better layout
 col1, col2 = st.columns(2)
 
 with col1:
-    age = st.number_input("Age", min_value=18, max_value=120, value=50, step=1)
+    age = st.number_input("Age", min_value=18, max_value=120, value=55, step=1)
     sex = st.selectbox("Sex", options=[0, 1], format_func=lambda x: "Female" if x == 0 else "Male")
     chest_pain_type = st.selectbox(
         "Chest Pain Type",
@@ -113,10 +124,10 @@ st.markdown("---")
 
 if st.button("🔍 Predict Heart Disease Risk", type="primary"):
     if model is None:
-        st.error("❌ Models not loaded. Please check that all model files are present.")
+        st.error("❌ Models not loaded. Please upload all required .pkl files to GitHub.")
     else:
-        # Prepare input data
-        patient_data = {
+        # Prepare raw data dictionary (matches your preprocessing function)
+        patient_raw_data = {
             'Age': age,
             'Sex': sex,
             'Chest_pain_type': chest_pain_type,
@@ -134,13 +145,13 @@ if st.button("🔍 Predict Heart Disease Risk", type="primary"):
         
         # Show input summary
         with st.expander("📊 View Input Data"):
-            st.json(patient_data)
+            st.json(patient_raw_data)
         
         # Preprocess and predict
         try:
-            # Show loading spinner
             with st.spinner("Analyzing patient data..."):
-                processed_df = preprocess_fn(patient_data)
+                # Your preprocessing function creates engineered features automatically!
+                processed_df = preprocess_fn(patient_raw_data)
                 probability = model.predict_proba(processed_df)[0][1]
                 prediction = model.predict(processed_df)[0]
             
@@ -149,12 +160,12 @@ if st.button("🔍 Predict Heart Disease Risk", type="primary"):
             # ============================================
             st.subheader("📊 Prediction Results")
             
-            # Create columns for risk display
+            # Risk percentage with progress bar
+            risk_percentage = probability * 100
+            
             col1, col2, col3 = st.columns([2, 1, 1])
             
             with col1:
-                # Show risk percentage with a progress bar
-                risk_percentage = probability * 100
                 st.metric("Risk Probability", f"{risk_percentage:.1f}%")
                 st.progress(probability)
             
@@ -167,7 +178,6 @@ if st.button("🔍 Predict Heart Disease Risk", type="primary"):
                     st.write("No Heart Disease Detected")
             
             with col3:
-                # Risk level indicator
                 if probability >= 0.7:
                     st.markdown("🔴 **RISK LEVEL: VERY HIGH**")
                 elif probability >= 0.5:
@@ -200,28 +210,43 @@ if st.button("🔍 Predict Heart Disease Risk", type="primary"):
                 - Avoid smoking and limit alcohol consumption
                 """)
             
-            # Additional details
-            with st.expander("📈 Clinical Details"):
-                st.write(f"**Model Prediction Confidence:** {max(probability, 1-probability)*100:.1f}%")
-                st.write(f"**Raw Probability Score:** {probability:.4f}")
+            # Show what features were created by preprocessing
+            with st.expander("🔧 Engineered Features Created"):
+                st.write("Your preprocessing function automatically created these features:")
+                st.write("- Age_BP_Ratio")
+                st.write("- Chol_HR_Ratio")
+                st.write("- Age_Group (Young/Middle/Senior/Elderly)")
+                st.write("- BP_Category (Normal/Elevated/High1/High2)")
+                st.write("- Chol_Risk (Normal/Borderline/High)")
+                st.write("- HR_Category (Low/Moderate/Good/Excellent)")
+                
+                # Show actual values for this patient
+                st.write("**Actual values for this patient:**")
+                for col in ['Age_BP_Ratio', 'Chol_HR_Ratio']:
+                    if col in processed_df.columns:
+                        st.write(f"- {col}: {processed_df[col].values[0]:.4f}")
                 
         except Exception as e:
             st.error(f"❌ Prediction error: {str(e)}")
-            st.info("Please check that all model files are properly loaded.")
+            st.info("Check that all model files are properly formatted and match the preprocessing function.")
 
 # ============================================
 # SIDEBAR WITH INFO
 # ============================================
 with st.sidebar:
-    st.header("ℹ️ About")
+    st.header("ℹ️ About This Model")
     st.markdown("""
     **Heart Disease Risk Predictor**
     
-    This model uses XGBoost to predict heart disease risk based on:
-    - Demographics (Age, Sex)
-    - Clinical measurements (BP, Cholesterol)
-    - ECG results
-    - Stress test results
+    This model uses **XGBoost** to predict heart disease risk with advanced feature engineering.
+    
+    **Engineered Features:**
+    - Age/BP Ratio
+    - Cholesterol/HR Ratio
+    - Age Groups (Young, Middle, Senior, Elderly)
+    - BP Categories
+    - Cholesterol Risk Levels
+    - Heart Rate Categories
     
     **Input ranges:**
     - Age: 18-120 years
@@ -229,7 +254,13 @@ with st.sidebar:
     - Cholesterol: 100-400 mg/dl
     - Max HR: 60-220 bpm
     
-    **Model accuracy:** Based on trained XGBoost model
+    **Model files needed:**
+    - best_model_xgboost.pkl
+    - scaler.pkl
+    - feature_names.pkl
+    - numerical_columns.pkl
+    - categorical_columns.pkl
+    - preprocess_patient.pkl
     """)
     
     st.header("📋 Feature Legend")
@@ -244,4 +275,9 @@ with st.sidebar:
     - 3: Normal
     - 6: Fixed Defect
     - 7: Reversible Defect
+    
+    **EKG Results:**
+    - 1: Normal
+    - 2: ST-T Abnormality
+    - 3: LVH
     """)
