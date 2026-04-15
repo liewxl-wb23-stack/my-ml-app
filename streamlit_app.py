@@ -1,283 +1,171 @@
-# app.py
+# app.py - Simple Heart Disease Predictor
 import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
 import pickle
+import os
 
 # ============================================
-# PAGE CONFIGURATION (MUST BE FIRST)
+# PAGE SETUP
 # ============================================
-st.set_page_config(
-    page_title="Heart Disease Risk Assessment",
-    page_icon="❤️",
-    layout="wide"
-)
+st.set_page_config(page_title="Heart Disease Predictor", page_icon="❤️")
 
-# ============================================
-# TITLE
-# ============================================
 st.title("❤️ Heart Disease Risk Assessment")
-st.markdown("""
-This app predicts the risk of heart disease based on patient clinical data.
-Enter the patient information below to get a prediction.
-""")
+st.write("Enter your medical information below to get a prediction")
 
 # ============================================
-# LOAD ALL MODELS AND PREPROCESSING TOOLS
+# LOAD MODELS (from the same folder as app.py)
 # ============================================
 @st.cache_resource
-def load_all_artifacts():
-    """Load all saved models and preprocessing tools"""
+def load_models():
+    """Load all the saved model files"""
     try:
-        # Load the trained model
-        model = joblib.load('best_model_xgboost.pkl')
+        # Get the current folder path
+        current_folder = os.path.dirname(os.path.abspath(__file__))
         
-        # Load preprocessing artifacts
-        scaler = joblib.load('scaler.pkl')
-        feature_names = joblib.load('feature_names.pkl')
-        numerical_cols = joblib.load('numerical_columns.pkl')
-        categorical_cols = joblib.load('categorical_columns.pkl')
+        # Load model and preprocessing files
+        model = joblib.load(os.path.join(current_folder, 'best_model_xgboost.pkl'))
         
-        # Load the preprocessing function
-        with open('preprocess_patient.pkl', 'rb') as f:
+        with open(os.path.join(current_folder, 'preprocess_patient.pkl'), 'rb') as f:
             preprocess_fn = pickle.load(f)
         
-        return model, scaler, feature_names, numerical_cols, categorical_cols, preprocess_fn
-    except FileNotFoundError as e:
-        st.error(f"❌ Missing file: {e}")
-        st.info("""
-        Please make sure these files are uploaded to GitHub:
-        - best_model_xgboost.pkl
-        - scaler.pkl
-        - feature_names.pkl
-        - numerical_columns.pkl
-        - categorical_columns.pkl
-        - preprocess_patient.pkl
-        """)
-        return None, None, None, None, None, None
+        return model, preprocess_fn
+    except Exception as e:
+        st.error(f"Error loading models: {e}")
+        st.info("Make sure all .pkl files are in the same folder as app.py")
+        return None, None
 
-# Load everything
-model, scaler, feature_names, numerical_cols, categorical_cols, preprocess_fn = load_all_artifacts()
+model, preprocess_fn = load_models()
 
 # ============================================
-# INPUT FORM
+# INPUT FORM (User fills this out)
 # ============================================
-st.subheader("📋 Patient Information")
+st.subheader("Patient Information")
 
+# Create two columns for better layout
 col1, col2 = st.columns(2)
 
 with col1:
-    age = st.number_input("Age", min_value=18, max_value=120, value=55, step=1)
-    sex = st.selectbox("Sex", options=[0, 1], format_func=lambda x: "Female" if x == 0 else "Male")
-    chest_pain_type = st.selectbox(
+    age = st.number_input("Age", min_value=18, max_value=120, value=50)
+    sex = st.radio("Sex", ["Female", "Male"])
+    chest_pain = st.selectbox(
         "Chest Pain Type",
-        options=[1, 2, 3, 4],
-        format_func=lambda x: {
-            1: "1 - Asymptomatic",
-            2: "2 - Typical Angina",
-            3: "3 - Atypical Angina",
-            4: "4 - Non-anginal Pain"
-        }[x]
+        ["Asymptomatic", "Typical Angina", "Atypical Angina", "Non-anginal Pain"]
     )
-    bp = st.number_input("Blood Pressure (mm Hg)", min_value=80, max_value=200, value=120, step=5)
-    cholesterol = st.number_input("Cholesterol (mg/dl)", min_value=100, max_value=400, value=200, step=10)
-    fbs_over_120 = st.selectbox("Fasting Blood Sugar > 120 mg/dl", options=[0, 1], format_func=lambda x: "No" if x == 0 else "Yes")
+    bp = st.number_input("Blood Pressure (mm Hg)", min_value=80, max_value=200, value=120)
+    cholesterol = st.number_input("Cholesterol (mg/dl)", min_value=100, max_value=400, value=200)
+    fbs = st.radio("Fasting Blood Sugar > 120", ["No", "Yes"])
 
 with col2:
-    ekg_results = st.selectbox(
+    ekg = st.selectbox(
         "EKG Results",
-        options=[1, 2, 3],
-        format_func=lambda x: {
-            1: "1 - Normal",
-            2: "2 - ST-T Abnormality",
-            3: "3 - LVH"
-        }[x]
+        ["Normal", "ST-T Abnormality", "LVH"]
     )
-    max_hr = st.number_input("Maximum Heart Rate", min_value=60, max_value=220, value=150, step=5)
-    exercise_angina = st.selectbox("Exercise Induced Angina", options=[0, 1], format_func=lambda x: "No" if x == 0 else "Yes")
+    max_hr = st.number_input("Maximum Heart Rate", min_value=60, max_value=220, value=150)
+    exercise_angina = st.radio("Exercise Induced Angina", ["No", "Yes"])
     st_depression = st.number_input("ST Depression", min_value=0.0, max_value=10.0, value=1.0, step=0.5)
-    slope_of_st = st.selectbox(
+    slope = st.selectbox(
         "Slope of ST Segment",
-        options=[1, 2, 3],
-        format_func=lambda x: {
-            1: "1 - Upsloping",
-            2: "2 - Flat",
-            3: "3 - Downsloping"
-        }[x]
+        ["Upsloping", "Flat", "Downsloping"]
     )
-    num_vessels = st.number_input("Number of Major Vessels (0-3)", min_value=0, max_value=3, value=0, step=1)
+    vessels = st.selectbox("Number of Major Vessels", [0, 1, 2, 3])
     thallium = st.selectbox(
         "Thallium Stress Test",
-        options=[3, 6, 7],
-        format_func=lambda x: {
-            3: "3 - Normal",
-            6: "6 - Fixed Defect",
-            7: "7 - Reversible Defect"
-        }[x]
+        ["Normal", "Fixed Defect", "Reversible Defect"]
     )
 
 # ============================================
-# PREDICTION BUTTON
+# Convert user inputs to model format
 # ============================================
-st.markdown("---")
+# Map text selections to numeric values (matching your training data)
+chest_pain_map = {
+    "Asymptomatic": 1,
+    "Typical Angina": 2,
+    "Atypical Angina": 3,
+    "Non-anginal Pain": 4
+}
 
-if st.button("🔍 Predict Heart Disease Risk", type="primary"):
+ekg_map = {
+    "Normal": 1,
+    "ST-T Abnormality": 2,
+    "LVH": 3
+}
+
+slope_map = {
+    "Upsloping": 1,
+    "Flat": 2,
+    "Downsloping": 3
+}
+
+thallium_map = {
+    "Normal": 3,
+    "Fixed Defect": 6,
+    "Reversible Defect": 7
+}
+
+# ============================================
+# PREDICT BUTTON
+# ============================================
+if st.button("Predict Heart Disease Risk", type="primary"):
     if model is None:
-        st.error("❌ Models not loaded. Please upload all required .pkl files to GitHub.")
+        st.error("Model not loaded. Please check your .pkl files.")
     else:
-        # Prepare raw data dictionary (matches your preprocessing function)
-        patient_raw_data = {
+        # Prepare the raw data dictionary
+        patient_data = {
             'Age': age,
-            'Sex': sex,
-            'Chest_pain_type': chest_pain_type,
+            'Sex': 0 if sex == "Female" else 1,
+            'Chest_pain_type': chest_pain_map[chest_pain],
             'BP': bp,
             'Cholesterol': cholesterol,
-            'FBS_over_120': fbs_over_120,
-            'EKG_results': ekg_results,
+            'FBS_over_120': 0 if fbs == "No" else 1,
+            'EKG_results': ekg_map[ekg],
             'Max_HR': max_hr,
-            'Exercise_angina': exercise_angina,
+            'Exercise_angina': 0 if exercise_angina == "No" else 1,
             'ST_depression': st_depression,
-            'Slope_of_ST': slope_of_st,
-            'Number_of_vessels_fluro': num_vessels,
-            'Thallium': thallium
+            'Slope_of_ST': slope_map[slope],
+            'Number_of_vessels_fluro': vessels,
+            'Thallium': thallium_map[thallium]
         }
         
-        # Show input summary
-        with st.expander("📊 View Input Data"):
-            st.json(patient_raw_data)
+        # Show what was entered
+        with st.expander("View entered data"):
+            st.json(patient_data)
         
-        # Preprocess and predict
+        # Make prediction
         try:
-            with st.spinner("Analyzing patient data..."):
-                # Your preprocessing function creates engineered features automatically!
-                processed_df = preprocess_fn(patient_raw_data)
-                probability = model.predict_proba(processed_df)[0][1]
-                prediction = model.predict(processed_df)[0]
+            with st.spinner("Analyzing..."):
+                processed = preprocess_fn(patient_data)
+                probability = model.predict_proba(processed)[0][1]
+                prediction = model.predict(processed)[0]
             
-            # ============================================
-            # DISPLAY RESULTS
-            # ============================================
-            st.subheader("📊 Prediction Results")
+            # Show results
+            st.subheader("Results")
             
-            # Risk percentage with progress bar
-            risk_percentage = probability * 100
+            risk_percent = probability * 100
             
-            col1, col2, col3 = st.columns([2, 1, 1])
+            # Display risk meter
+            st.metric("Risk Probability", f"{risk_percent:.1f}%")
+            st.progress(probability / 100)
             
-            with col1:
-                st.metric("Risk Probability", f"{risk_percentage:.1f}%")
-                st.progress(probability)
-            
-            with col2:
-                if prediction == 1:
-                    st.error("⚠️ HIGH RISK")
-                    st.write("Heart Disease Detected")
-                else:
-                    st.success("✅ LOW RISK")
-                    st.write("No Heart Disease Detected")
-            
-            with col3:
-                if probability >= 0.7:
-                    st.markdown("🔴 **RISK LEVEL: VERY HIGH**")
-                elif probability >= 0.5:
-                    st.markdown("🟠 **RISK LEVEL: HIGH**")
-                elif probability >= 0.3:
-                    st.markdown("🟡 **RISK LEVEL: MODERATE**")
-                elif probability >= 0.1:
-                    st.markdown("🟢 **RISK LEVEL: LOW**")
-                else:
-                    st.markdown("✅ **RISK LEVEL: VERY LOW**")
-            
-            # Recommendations
-            st.markdown("---")
-            st.subheader("💡 Recommendations")
-            
+            # Display final verdict
             if prediction == 1:
-                st.warning("""
-                **🏥 Immediate Recommendations:**
-                - Consult a cardiologist as soon as possible
-                - Schedule a comprehensive heart health checkup
-                - Consider lifestyle modifications (diet, exercise, stress management)
-                - Follow up with regular monitoring
-                """)
+                st.error("⚠️ HIGH RISK - Heart Disease Detected")
+                st.warning("Please consult a cardiologist for further evaluation.")
             else:
-                st.info("""
-                **💪 Preventive Recommendations:**
-                - Maintain a heart-healthy diet
-                - Exercise regularly (30 minutes, 5 days/week)
-                - Monitor blood pressure and cholesterol annually
-                - Avoid smoking and limit alcohol consumption
-                """)
-            
-            # Show what features were created by preprocessing
-            with st.expander("🔧 Engineered Features Created"):
-                st.write("Your preprocessing function automatically created these features:")
-                st.write("- Age_BP_Ratio")
-                st.write("- Chol_HR_Ratio")
-                st.write("- Age_Group (Young/Middle/Senior/Elderly)")
-                st.write("- BP_Category (Normal/Elevated/High1/High2)")
-                st.write("- Chol_Risk (Normal/Borderline/High)")
-                st.write("- HR_Category (Low/Moderate/Good/Excellent)")
-                
-                # Show actual values for this patient
-                st.write("**Actual values for this patient:**")
-                for col in ['Age_BP_Ratio', 'Chol_HR_Ratio']:
-                    if col in processed_df.columns:
-                        st.write(f"- {col}: {processed_df[col].values[0]:.4f}")
+                st.success("✅ LOW RISK - No Heart Disease Detected")
+                st.info("Maintain a healthy lifestyle with regular exercise and balanced diet.")
                 
         except Exception as e:
-            st.error(f"❌ Prediction error: {str(e)}")
-            st.info("Check that all model files are properly formatted and match the preprocessing function.")
+            st.error(f"Prediction failed: {e}")
 
 # ============================================
-# SIDEBAR WITH INFO
+# Sidebar Information
 # ============================================
 with st.sidebar:
-    st.header("ℹ️ About This Model")
-    st.markdown("""
-    **Heart Disease Risk Predictor**
-    
-    This model uses **XGBoost** to predict heart disease risk with advanced feature engineering.
-    
-    **Engineered Features:**
-    - Age/BP Ratio
-    - Cholesterol/HR Ratio
-    - Age Groups (Young, Middle, Senior, Elderly)
-    - BP Categories
-    - Cholesterol Risk Levels
-    - Heart Rate Categories
-    
-    **Input ranges:**
-    - Age: 18-120 years
-    - BP: 80-200 mm Hg
-    - Cholesterol: 100-400 mg/dl
-    - Max HR: 60-220 bpm
-    
-    **Model files needed:**
-    - best_model_xgboost.pkl
-    - scaler.pkl
-    - feature_names.pkl
-    - numerical_columns.pkl
-    - categorical_columns.pkl
-    - preprocess_patient.pkl
-    """)
-    
-    st.header("📋 Feature Legend")
-    st.markdown("""
-    **Chest Pain Types:**
-    - 1: Asymptomatic (no symptoms)
-    - 2: Typical Angina
-    - 3: Atypical Angina
-    - 4: Non-anginal Pain
-    
-    **Thallium Results:**
-    - 3: Normal
-    - 6: Fixed Defect
-    - 7: Reversible Defect
-    
-    **EKG Results:**
-    - 1: Normal
-    - 2: ST-T Abnormality
-    - 3: LVH
-    """)
+    st.header("About")
+    st.write("This model uses XGBoost to predict heart disease risk based on clinical data.")
+    st.write("The preprocessing automatically creates engineered features like:")
+    st.write("- Age/BP Ratio")
+    st.write("- Cholesterol/HR Ratio")
+    st.write("- Age Groups, BP Categories, etc.")
